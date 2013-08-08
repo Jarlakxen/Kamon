@@ -1,27 +1,19 @@
 package kamon.metric
 
 import java.util.concurrent.{ConcurrentHashMap, ConcurrentSkipListSet, TimeUnit}
-import com.codahale.metrics._
 import akka.actor.ActorRef
-import java.util.concurrent.atomic.AtomicReference
 import com.codahale.metrics
-
-trait MetricDepot {
-  def include(name: String, metric: Metric): Unit
-  def exclude(name: String): Unit
-}
+import com.codahale.metrics.{MetricFilter, Metric, ConsoleReporter, MetricRegistry}
 
 
-
-object Metrics extends MetricDepot {
+object Metrics {
   val registry: MetricRegistry = new MetricRegistry
 
   val consoleReporter = ConsoleReporter.forRegistry(registry).convertDurationsTo(TimeUnit.NANOSECONDS)
-  val newrelicReporter = NewRelicReporter(registry)
+  //consoleReporter.build().start(45, TimeUnit.SECONDS)
 
+  //val newrelicReporter = NewRelicReporter(registry)
   //newrelicReporter.start(5, TimeUnit.SECONDS)
-  consoleReporter.build().start(10, TimeUnit.SECONDS)
-
 
   def include(name: String, metric: Metric) = registry.register(name, metric)
 
@@ -64,48 +56,59 @@ object MetricDirectory {
 
 
 
+
+
+
+
+
+
+
+
+
+case class DispatcherMetricCollector(activeThreadCount: Histogram, poolSize: Histogram, queueSize: Histogram)
+
+
+
+
+trait Histogram {
+  def update(value: Long): Unit
+  def snapshot: HistogramSnapshot
+}
+
+trait HistogramSnapshot {
+  def median: Double
+  def max: Double
+  def min: Double
+}
+
+
 case class ActorSystemMetrics(actorSystemName: String) {
-  val dispatchers = new ConcurrentHashMap[String, DispatcherMetrics]
+  import scala.collection.JavaConverters._
+  val dispatchers = new ConcurrentHashMap[String, DispatcherMetricCollector] asScala
+
+  private[this] def createDispatcherCollector: DispatcherMetricCollector = DispatcherMetricCollector(CodahaleHistogram(), CodahaleHistogram(), CodahaleHistogram())
 
   def registerDispatcher(dispatcherName: String): Option[DispatcherMetricCollector] = {
-    ???
+    val stats = createDispatcherCollector
+    dispatchers.put(dispatcherName, stats)
+    Some(stats)
   }
 
 }
 
 
-
-case class DispatcherMetricCollector(activeThreadCount: ValueDistributionCollector, poolSize: ValueDistributionCollector, queueSize: ValueDistributionCollector)
-
-
-
-
-trait ValueDistributionCollector {
-  def update(value: Long): Unit
-  def snapshot: HistogramLike
-}
-
-trait HistogramLike {
-  def median: Long
-  def max: Long
-  def min: Long
-}
-
-case class CodaHaleValueDistributionCollector extends ValueDistributionCollector {
-  private[this] val histogram = new Histogram(new metrics.ExponentiallyDecayingReservoir())
-
-  def median: Long = ???
-
-  def max: Long = ???
-
-  def min: Long = ???
-
-  def snapshot: HistogramLike = histogram.getSnapshot
+case class CodahaleHistogram() extends Histogram {
+  private[this] val histogram = new com.codahale.metrics.Histogram(new metrics.ExponentiallyDecayingReservoir())
 
   def update(value: Long) = histogram.update(value)
+  def snapshot: HistogramSnapshot = {
+    val snapshot = histogram.getSnapshot
+
+    CodahaleHistogramSnapshot(snapshot.getMedian, snapshot.getMax, snapshot.getMin)
+  }
 }
 
-
+case class CodahaleHistogramSnapshot(median: Double, max: Double, min: Double) extends HistogramSnapshot
 
 
 

@@ -4,8 +4,97 @@ import org.aspectj.lang.annotation._
 import java.util.concurrent._
 import org.aspectj.lang.ProceedingJoinPoint
 import java.util
-import kamon.metric.{MetricDirectory, ExecutorServiceMetricCollector}
+import kamon.metric.{DispatcherMetricCollector, Histogram, MetricDirectory, ExecutorServiceMetricCollector}
 import akka.dispatch.{MonitorableThreadFactory, ExecutorServiceFactory}
+import com.typesafe.config.Config
+import kamon.Kamon
+import scala.concurrent.forkjoin.ForkJoinPool
+import akka.dispatch.ForkJoinExecutorConfigurator.AkkaForkJoinPool
+
+
+@Aspect
+class ActorSystemInstrumentation {
+
+  @Pointcut("execution(akka.actor.ActorSystemImpl.new(..)) && args(name, applicationConfig, classLoader)")
+  def actorSystemInstantiation(name: String, applicationConfig: Config, classLoader: ClassLoader) = {}
+
+  @After("actorSystemInstantiation(name, applicationConfig, classLoader)")
+  def registerActorSystem(name: String, applicationConfig: Config, classLoader: ClassLoader): Unit = {
+
+    Kamon.Metric.registerActorSystem(name)
+  }
+}
+
+@Aspect("perthis(forkJoinPoolInstantiation(int, scala.concurrent.forkjoin.ForkJoinPool.ForkJoinWorkerThreadFactory, java.lang.Thread.UncaughtExceptionHandler))")
+class ForkJoinPoolInstrumentation {
+  var activeThreadsHistogram: Histogram = _
+  var poolSizeHistogram: Histogram = _
+
+  @Pointcut("execution(akka.dispatch.ForkJoinExecutorConfigurator.AkkaForkJoinPool.new(..)) && args(parallelism, threadFactory, exceptionHandler)")
+  def forkJoinPoolInstantiation(parallelism: Int, threadFactory: ForkJoinPool.ForkJoinWorkerThreadFactory, exceptionHandler: Thread.UncaughtExceptionHandler) = {}
+
+  @After("forkJoinPoolInstantiation(parallelism, threadFactory, exceptionHandler)")
+  def initializeMetrics(parallelism: Int, threadFactory: ForkJoinPool.ForkJoinWorkerThreadFactory, exceptionHandler: Thread.UncaughtExceptionHandler): Unit = {
+    val (actorSystemName, dispatcherName) = threadFactory match {
+      case mtf: MonitorableThreadFactory => splitName(mtf.name, Kamon.Metric.actorSystemNames)
+      case _ => ("Unknown", "Unknown")
+    }
+
+    val metrics = Kamon.Metric.actorSystem(actorSystemName).get.registerDispatcher(dispatcherName)
+    for(m <- metrics) {
+      activeThreadsHistogram = m.activeThreadCount
+      poolSizeHistogram = m.poolSize
+      println(s"Registered $dispatcherName for actor system $actorSystemName")
+    }
+  }
+
+  def splitName(threadFactoryName: String, knownActorSystems: List[String]): (String, String) = {
+    knownActorSystems.find(threadFactoryName.startsWith(_)).map(asName => (asName, threadFactoryName.substring(asName.length+1))).getOrElse(("Unkown", "Unkown"))
+  }
+
+
+
+
+  @Pointcut("execution(* scala.concurrent.forkjoin.ForkJoinPool.scan(..)) && this(fjp)")
+  def forkJoinScan(fjp: AkkaForkJoinPool): Unit = {}
+
+  @After("forkJoinScan(fjp)")
+  def updateMetrics(fjp: AkkaForkJoinPool): Unit = {
+    activeThreadsHistogram.update(fjp.getActiveThreadCount)
+    poolSizeHistogram.update(fjp.getPoolSize)
+  }
+
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 /**
@@ -33,6 +122,14 @@ trait WatchedExecutorService {
 
 
 
+
+trait ExecutorServiceMonitoring {
+  def dispatcherMetrics: DispatcherMetricCollector
+}
+
+class ExecutorServiceMonitoringImpl extends ExecutorServiceMonitoring {
+  @volatile var dispatcherMetrics: DispatcherMetricCollector = _
+}
 
 
 

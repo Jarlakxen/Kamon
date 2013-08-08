@@ -2,7 +2,7 @@
 
 <aspectj>
     <weaver options="-verbose -showWeaveInfo">
-       <dump within="*" beforeandafter="true"/>
+       <!--<dump within="*" beforeandafter="true"/>-->
     </weaver>
 
     <aspects>
@@ -15,8 +15,10 @@
         <aspect name="kamon.instrumentation.InceptionAspect"/>
 
         <!-- ExecutorService Instrumentation for Akka. -->
-        <aspect name="kamon.instrumentation.ExecutorServiceFactoryProviderInstrumentation"/>
-        <aspect name="kamon.instrumentation.NamedExecutorServiceFactoryDelegateInstrumentation"/>
+<!--        <aspect name="kamon.instrumentation.ExecutorServiceFactoryProviderInstrumentation"/>
+        <aspect name="kamon.instrumentation.NamedExecutorServiceFactoryDelegateInstrumentation"/>-->
+        <aspect name="kamon.instrumentation.ActorSystemInstrumentation"/>
+        <aspect name ="kamon.instrumentation.ForkJoinPoolInstrumentation"/>
 
 
 
