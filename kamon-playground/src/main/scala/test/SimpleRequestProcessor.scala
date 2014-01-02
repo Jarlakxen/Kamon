@@ -34,7 +34,6 @@ object SimpleRequestProcessor extends App with SimpleRoutingApp with RequestBuil
   import system.dispatcher
 
   val act = system.actorOf(Props(new Actor {
-    println("Initializing from: " + (new Throwable).getStackTraceString)
     def receive: Actor.Receive = { case any ⇒ sender ! any }
   }), "com")
 

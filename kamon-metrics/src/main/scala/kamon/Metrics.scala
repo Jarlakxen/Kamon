@@ -29,5 +29,27 @@ object Metrics extends ExtensionId[MetricsExtension] with ExtensionIdProvider {
 
 class MetricsExtension(system: ExtendedActorSystem) extends Kamon.Extension {
   def manager: ActorRef = ???
+  def other = ???
 }
+
+
+
+
+class MetricRegistry {
+
+}
+
+// Metric types:
+// - Simple Metrics
+// - Group Metrics
+
+
+trait MetricRecorder {
+  def record(value: Long)
+}
+
+trait MetricCategory
+case object Actor extends MetricCategory
+
+case class Metric(category: MetricCategory, name: String)
 
