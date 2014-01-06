@@ -13,13 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  * ========================================================== */
-package kamon
 
-import com.codahale.metrics.MetricRegistry
-import com.typesafe.config.ConfigFactory
-import akka.actor.{ ActorRef, ExtendedActorSystem, ExtensionIdProvider, ExtensionId }
-import kamon.Kamon.Extension
+package kamon.metrics
+
+import akka.actor.{ ExtendedActorSystem, ExtensionIdProvider, ExtensionId }
 import akka.actor
+import kamon.Kamon
 
 object Metrics extends ExtensionId[MetricsExtension] with ExtensionIdProvider {
   def lookup(): ExtensionId[_ <: actor.Extension] = Metrics
@@ -28,28 +27,5 @@ object Metrics extends ExtensionId[MetricsExtension] with ExtensionIdProvider {
 }
 
 class MetricsExtension(system: ExtendedActorSystem) extends Kamon.Extension {
-  def manager: ActorRef = ???
-  def other = ???
+  val registry = new MetricRegistry
 }
-
-
-
-
-class MetricRegistry {
-
-}
-
-// Metric types:
-// - Simple Metrics
-// - Group Metrics
-
-
-trait MetricRecorder {
-  def record(value: Long)
-}
-
-trait MetricCategory
-case object Actor extends MetricCategory
-
-case class Metric(category: MetricCategory, name: String)
-

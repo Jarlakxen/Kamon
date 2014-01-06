@@ -42,7 +42,7 @@ object SimpleRequestProcessor extends App with SimpleRoutingApp with RequestBuil
   implicit val timeout = Timeout(30 seconds)
 
   val pipeline = sendReceive
-  val replier = system.actorOf(Props[Replier])
+  val replier = system.actorOf(Props[Replier], "replier")
   val random = new Random()
   startServer(interface = "localhost", port = 9090) {
     get {

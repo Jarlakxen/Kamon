@@ -13,20 +13,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  * ========================================================== */
-package kamon.trace.instrumentation
+package kamon.instrumentation
 
 import org.aspectj.lang.annotation._
 import org.aspectj.lang.ProceedingJoinPoint
 import akka.actor.{ Props, ActorSystem, ActorRef }
 import akka.dispatch.{ Envelope, MessageDispatcher }
-import com.codahale.metrics.Timer
-import kamon.trace.{ ContextAware, TraceContext, Trace }
+import kamon.trace.{ ContextAware, Trace }
+import kamon.metrics.Metrics
+import kamon.Kamon
 
 @Aspect
 class BehaviourInvokeTracing {
 
   @Pointcut("execution(akka.actor.ActorCell.new(..)) && args(system, ref, props, dispatcher, parent)")
   def actorCellCreation(system: ActorSystem, ref: ActorRef, props: Props, dispatcher: MessageDispatcher, parent: ActorRef): Unit = {}
+
+  @After("actorCellCreation(system, ref, props, dispatcher, parent)")
+  def afterCreation(system: ActorSystem, ref: ActorRef, props: Props, dispatcher: MessageDispatcher, parent: ActorRef): Unit = {
+    Kamon(Metrics)(system)
+    println(s"JUST CREATED: ${ref.path.toString} of type ${props.actorClass()}")
+  }
 
   @Pointcut("(execution(* akka.actor.ActorCell.invoke(*)) || execution(* akka.routing.RoutedActorCell.sendMessage(*))) && args(envelope)")
   def invokingActorBehaviourAtActorCell(envelope: Envelope) = {}
