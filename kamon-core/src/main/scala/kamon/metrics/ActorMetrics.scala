@@ -16,24 +16,18 @@
 
 package kamon.metrics
 
-import kamon.metrics.ActorMetrics.{ MailboxSize, TimeInMailbox, ProcessingTime }
+import org.HdrHistogram.AtomicHistogram
 
-class ActorMetrics extends MetricGroup {
-  val processingTimeMetric = new DefaultHdrMetric
-  val timeInMailboxMetric = new DefaultHdrMetric
-  val mailboxSizeMetric = new DefaultHdrMetric
+class ActorMetrics {
+  val processingTimeMetric = new AtomicHistogram(OneHour, 2)
+  val timeInMailboxMetric = new AtomicHistogram(OneHour, 2)
+  val mailboxSizeMetric = new AtomicHistogram(OneHour, 2)
 
-  def apply(metricName: String): Metric = metricName match {
-    case "ProcessingTime" ⇒ processingTimeMetric
-    case "TimeInMailbox"  ⇒ timeInMailboxMetric
-    case "MailboxSize"    ⇒ mailboxSizeMetric
-  }
-
+  def recordTimeInMailbox(waitTime: Long): Unit = timeInMailboxMetric.recordValue(waitTime)
+  def recordProcessingTime(processingTime: Long): Unit = processingTimeMetric.recordValue(processingTime)
 }
 
 object ActorMetrics {
-  sealed trait ActorMetricsID
-  case object ProcessingTime extends ActorMetricsID
-  case object TimeInMailbox extends ActorMetricsID
-  case object MailboxSize extends ActorMetricsID
+  def apply(): ActorMetrics = new ActorMetrics
+
 }

@@ -12,36 +12,21 @@
  * either express or implied. See the License for the specific language governing permissions
  * and limitations under the License.
  * =========================================================================================
-*/
+ */
 
 package kamon.metrics
 
-import scala.collection.concurrent.TrieMap
-import org.HdrHistogram.AtomicHistogram
+import org.scalatest.{ Matchers, WordSpec }
 
-trait Metric {
-  def record(value: Long): Unit
-}
+class RegistrySpec extends WordSpec with Matchers {
+  "a metrics registry" should {
+    "register actor metrics that can be updated and retrieved" in new RegistryFixture {
+      val actorMetrics = registry.registerActor("akka://test/user/actor")
 
-class DefaultHdrMetric extends Metric {
-  val hdr = new AtomicHistogram(3600000000000L, 2)
-
-  def record(value: Long): Unit = hdr.recordValue(value)
-}
-
-trait MetricGroup {
-
-  // This should always getOrCreate the metric.
-  def apply(metricName: String): Metric
-}
-
-class MetricRegistry {
-  private val registry = TrieMap[String, MetricGroup]()
-
-  def register[T <: MetricGroup](name: String, metricGroup: T): T = {
-    registry.update(name, metricGroup)
-    metricGroup
+    }
   }
 
-  def find(name: String): MetricGroup = registry(name)
+  trait RegistryFixture {
+    val registry = new Registry
+  }
 }

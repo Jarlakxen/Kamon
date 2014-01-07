@@ -17,27 +17,15 @@
 package kamon.metrics
 
 import scala.collection.concurrent.TrieMap
-import org.HdrHistogram.AtomicHistogram
-
-trait MetricGroup
-
-trait MetricKey {
-  type M <: MetricGroup
-}
-
-
-case class ActorMetricLookup(path: String) extends MetricKey {
-  type M = ActorMetric
-}
-
-class ActorMetric extends MetricGroup {
-  val processingTime = new AtomicHistogram(3600 * 1000 * 1000 * 1000, 2)
-  val timeInMailbox = new AtomicHistogram(3600 * 1000 * 1000 * 1000, 2)
-}
 
 class Registry {
-  val metrics = TrieMap[MetricKey, MetricGroup]()
+  val actorMetrics = TrieMap[String, ActorMetrics]()
 
 
-  def create(key: MetricKey): key.M = metrics(key)
+
+
+  def registerActor(path: String): ActorMetrics = {
+    actorMetrics.getOrElseUpdate(path, ActorMetrics())
+  }
 }
+

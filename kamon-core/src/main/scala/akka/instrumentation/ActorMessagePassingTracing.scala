@@ -13,47 +13,71 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  * ========================================================== */
-package kamon.instrumentation
+package akka.instrumentation
 
 import org.aspectj.lang.annotation._
 import org.aspectj.lang.ProceedingJoinPoint
-import akka.actor.{ Props, ActorSystem, ActorRef }
+import akka.actor.{Cell, Props, ActorSystem, ActorRef}
 import akka.dispatch.{ Envelope, MessageDispatcher }
-import kamon.trace.{ ContextAware, Trace }
-import kamon.metrics.Metrics
+import kamon.trace.{TraceContext, ContextAware, Trace}
+import kamon.metrics.{ActorMetrics, Metrics}
 import kamon.Kamon
 
-@Aspect
+@Aspect("perthis(actorCellCreation(*, *, *, *, *))")
 class BehaviourInvokeTracing {
+  var path: Option[String] = None
+  var actorMetrics: Option[ActorMetrics] = None
 
   @Pointcut("execution(akka.actor.ActorCell.new(..)) && args(system, ref, props, dispatcher, parent)")
   def actorCellCreation(system: ActorSystem, ref: ActorRef, props: Props, dispatcher: MessageDispatcher, parent: ActorRef): Unit = {}
 
   @After("actorCellCreation(system, ref, props, dispatcher, parent)")
   def afterCreation(system: ActorSystem, ref: ActorRef, props: Props, dispatcher: MessageDispatcher, parent: ActorRef): Unit = {
-    Kamon(Metrics)(system)
-    println(s"JUST CREATED: ${ref.path.toString} of type ${props.actorClass()}")
+    if(!ref.path.toString.contains("IO") && !ref.path.toString.contains("system")) {
+      path = Some(ref.path.toString)
+      actorMetrics = Some(Kamon(Metrics)(system).registerActor(ref.path.toString))
+    }
   }
+
 
   @Pointcut("(execution(* akka.actor.ActorCell.invoke(*)) || execution(* akka.routing.RoutedActorCell.sendMessage(*))) && args(envelope)")
   def invokingActorBehaviourAtActorCell(envelope: Envelope) = {}
 
   @Around("invokingActorBehaviourAtActorCell(envelope)")
   def aroundBehaviourInvoke(pjp: ProceedingJoinPoint, envelope: Envelope): Unit = {
-    //safe cast
-    val ctxInMessage = envelope.asInstanceOf[ContextAware].traceContext
+    val timestampBeforeProcessing = System.nanoTime()
+    val contextAndTimestamp = envelope.asInstanceOf[ContextAndTimestampAware]
 
-    Trace.withContext(ctxInMessage) {
+    Trace.withContext(contextAndTimestamp.traceContext) {
       pjp.proceed()
     }
+
+    actorMetrics.map { am =>
+      am.recordProcessingTime(System.nanoTime() - timestampBeforeProcessing)
+      am.recordTimeInMailbox(timestampBeforeProcessing - contextAndTimestamp.timestamp)
+    }
+  }
+
+
+  @Pointcut("execution(* akka.actor.ActorCell.stop(*)) && this(cell)")
+  def actorStop(cell: Cell): Unit = {}
+
+  @After("actorStop(cell)")
+  def afterStop(cell: Cell): Unit = {
+    path.map(p => { println(s"Killing: $p and ${(new Throwable).getStackTraceString}}"); Kamon(Metrics)(cell.system).unregisterActor(p) })
+
   }
 }
+
 
 @Aspect
 class EnvelopeTraceContextMixin {
 
   @DeclareMixin("akka.dispatch.Envelope")
-  def mixin: ContextAware = ContextAware.default
+  def mixin: ContextAndTimestampAware = new ContextAndTimestampAware {
+    val traceContext: Option[TraceContext] = Trace.context()
+    val timestamp: Long = System.nanoTime()
+  }
 
   @Pointcut("execution(akka.dispatch.Envelope.new(..)) && this(ctx)")
   def envelopeCreation(ctx: ContextAware): Unit = {}
@@ -63,4 +87,8 @@ class EnvelopeTraceContextMixin {
     // Necessary to force the initialization of ContextAware at the moment of creation.
     ctx.traceContext
   }
+}
+
+trait ContextAndTimestampAware extends ContextAware {
+  def timestamp: Long
 }

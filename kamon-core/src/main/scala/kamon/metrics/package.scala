@@ -14,22 +14,10 @@
  * =========================================================================================
  */
 
-package kamon.metrics
+package kamon
 
-import org.scalatest.{ Matchers, WordSpec }
+import scala.concurrent.duration._
 
-class MetricRegistrySpec extends WordSpec with Matchers {
-  "a metrics registry" should {
-    "register metrics" in new RegistryFixture {
-      val metric = new ActorMetrics
-      registry.register("/system/user/test", metric)
-
-      registry.find("/system/user/test") should equal(metric)
-
-    }
-  }
-
-  trait RegistryFixture {
-    val registry = new MetricRegistry
-  }
+package object metrics {
+  val OneHour = 1.hour.toNanos
 }

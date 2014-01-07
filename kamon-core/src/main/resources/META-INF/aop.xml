@@ -11,8 +11,8 @@
         <aspect name="akka.instrumentation.RepointableActorRefTraceContextMixin"/>
         <aspect name="akka.instrumentation.SystemMessageTraceContextMixin"/>
         <aspect name="akka.instrumentation.ActorSystemMessagePassingTracing"/>
-        <aspect name="kamon.instrumentation.EnvelopeTraceContextMixin"/>
-        <aspect name="kamon.instrumentation.BehaviourInvokeTracing"/>
+        <aspect name="akka.instrumentation.EnvelopeTraceContextMixin"/>
+        <aspect name="akka.instrumentation.BehaviourInvokeTracing"/>
         <aspect name="kamon.instrumentation.ActorLoggingTracing"/>
 
         <!-- Futures -->

@@ -24,6 +24,7 @@ import kamon.spray.UowDirectives
 import kamon.trace.Trace
 import kamon.Kamon
 import scala.util.Random
+import akka.routing.RoundRobinRouter
 
 object SimpleRequestProcessor extends App with SimpleRoutingApp with RequestBuilding with UowDirectives {
   import scala.concurrent.duration._
@@ -42,7 +43,7 @@ object SimpleRequestProcessor extends App with SimpleRoutingApp with RequestBuil
   implicit val timeout = Timeout(30 seconds)
 
   val pipeline = sendReceive
-  val replier = system.actorOf(Props[Replier], "replier")
+  val replier = system.actorOf(Props[Replier].withRouter(RoundRobinRouter(nrOfInstances = 2)), "replier")
   val random = new Random()
   startServer(interface = "localhost", port = 9090) {
     get {
@@ -79,6 +80,12 @@ object SimpleRequestProcessor extends App with SimpleRoutingApp with RequestBuil
         } ~
         path("future") {
           dynamic {
+            complete(Future { "OK" })
+          }
+        } ~
+        path("kill") {
+          dynamic {
+            replier ! PoisonPill
             complete(Future { "OK" })
           }
         } ~

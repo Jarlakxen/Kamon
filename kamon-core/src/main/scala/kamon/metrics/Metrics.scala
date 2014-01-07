@@ -19,6 +19,8 @@ package kamon.metrics
 import akka.actor.{ ExtendedActorSystem, ExtensionIdProvider, ExtensionId }
 import akka.actor
 import kamon.Kamon
+import scala.concurrent.duration._
+import scala.collection.concurrent.TrieMap
 
 object Metrics extends ExtensionId[MetricsExtension] with ExtensionIdProvider {
   def lookup(): ExtensionId[_ <: actor.Extension] = Metrics
@@ -27,5 +29,17 @@ object Metrics extends ExtensionId[MetricsExtension] with ExtensionIdProvider {
 }
 
 class MetricsExtension(system: ExtendedActorSystem) extends Kamon.Extension {
-  val registry = new MetricRegistry
+  val actorMetrics = TrieMap[String, ActorMetrics]()
+
+
+  implicit val ec = system.dispatcher
+  system.scheduler.schedule(15 seconds, 15 seconds) {
+    println("===============================================================")
+    actorMetrics.foreach { t =>
+      println(s"Actor[${t._1}] - Processed: [${t._2.processingTimeMetric.getHistogramData.getTotalCount}]")
+    }
+  }
+
+  def registerActor(path: String): ActorMetrics = actorMetrics.getOrElseUpdate(path, ActorMetrics())
+  def unregisterActor(path: String): Unit = actorMetrics.remove(path)
 }
