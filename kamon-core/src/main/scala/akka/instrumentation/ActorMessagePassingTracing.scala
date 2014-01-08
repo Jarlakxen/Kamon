@@ -17,28 +17,29 @@ package akka.instrumentation
 
 import org.aspectj.lang.annotation._
 import org.aspectj.lang.ProceedingJoinPoint
-import akka.actor.{Cell, Props, ActorSystem, ActorRef}
+import akka.actor.{ Cell, Props, ActorSystem, ActorRef }
 import akka.dispatch.{ Envelope, MessageDispatcher }
-import kamon.trace.{TraceContext, ContextAware, Trace}
-import kamon.metrics.{ActorMetrics, Metrics}
+import kamon.trace.{ TraceContext, ContextAware, Trace }
+import kamon.metrics.{ ActorMetricsRecorder, Metrics }
 import kamon.Kamon
 
 @Aspect("perthis(actorCellCreation(*, *, *, *, *))")
 class BehaviourInvokeTracing {
   var path: Option[String] = None
-  var actorMetrics: Option[ActorMetrics] = None
+  var actorMetrics: Option[ActorMetricsRecorder] = None
 
   @Pointcut("execution(akka.actor.ActorCell.new(..)) && args(system, ref, props, dispatcher, parent)")
   def actorCellCreation(system: ActorSystem, ref: ActorRef, props: Props, dispatcher: MessageDispatcher, parent: ActorRef): Unit = {}
 
   @After("actorCellCreation(system, ref, props, dispatcher, parent)")
   def afterCreation(system: ActorSystem, ref: ActorRef, props: Props, dispatcher: MessageDispatcher, parent: ActorRef): Unit = {
-    if(!ref.path.toString.contains("IO") && !ref.path.toString.contains("system")) {
+    val metricsExtension = Kamon(Metrics)(system)
+
+    if (metricsExtension.shouldTrackActor(ref.path.elements.mkString("/"))) {
       path = Some(ref.path.toString)
-      actorMetrics = Some(Kamon(Metrics)(system).registerActor(ref.path.toString))
+      actorMetrics = Some(metricsExtension.registerActor(ref.path.toString))
     }
   }
-
 
   @Pointcut("(execution(* akka.actor.ActorCell.invoke(*)) || execution(* akka.routing.RoutedActorCell.sendMessage(*))) && args(envelope)")
   def invokingActorBehaviourAtActorCell(envelope: Envelope) = {}
@@ -52,23 +53,20 @@ class BehaviourInvokeTracing {
       pjp.proceed()
     }
 
-    actorMetrics.map { am =>
+    actorMetrics.map { am ⇒
       am.recordProcessingTime(System.nanoTime() - timestampBeforeProcessing)
       am.recordTimeInMailbox(timestampBeforeProcessing - contextAndTimestamp.timestamp)
     }
   }
 
-
-  @Pointcut("execution(* akka.actor.ActorCell.stop(*)) && this(cell)")
+  @Pointcut("execution(* akka.actor.ActorCell.stop()) && this(cell)")
   def actorStop(cell: Cell): Unit = {}
 
   @After("actorStop(cell)")
   def afterStop(cell: Cell): Unit = {
-    path.map(p => { println(s"Killing: $p and ${(new Throwable).getStackTraceString}}"); Kamon(Metrics)(cell.system).unregisterActor(p) })
-
+    path.map(p ⇒ Kamon(Metrics)(cell.system).unregisterActor(p))
   }
 }
-
 
 @Aspect
 class EnvelopeTraceContextMixin {

@@ -19,7 +19,7 @@ package kamon.metrics
 import org.scalatest.{ Matchers, WordSpec }
 
 class RegistrySpec extends WordSpec with Matchers {
-  "a metrics registry" should {
+/*  "a metrics registry" should {
     "register actor metrics that can be updated and retrieved" in new RegistryFixture {
       val actorMetrics = registry.registerActor("akka://test/user/actor")
 
@@ -28,5 +28,5 @@ class RegistrySpec extends WordSpec with Matchers {
 
   trait RegistryFixture {
     val registry = new Registry
-  }
+  }*/
 }

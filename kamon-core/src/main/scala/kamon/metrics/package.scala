@@ -17,7 +17,15 @@
 package kamon
 
 import scala.concurrent.duration._
+import com.typesafe.config.Config
 
 package object metrics {
   val OneHour = 1.hour.toNanos
+
+  case class HdrConfiguration(highestTrackableValue: Long, significantValueDigits: Int)
+  case object HdrConfiguration {
+    def fromConfig(config: Config): HdrConfiguration = {
+      HdrConfiguration(config.getLong("highest-trackable-value"), config.getInt("significant-value-digits"))
+    }
+  }
 }

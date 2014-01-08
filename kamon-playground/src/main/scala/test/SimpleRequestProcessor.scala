@@ -127,7 +127,7 @@ class Replier extends Actor with ActorLogging {
       if (Trace.context.isEmpty)
         log.warning("PROCESSING A MESSAGE WITHOUT CONTEXT")
 
-      log.info("Processing at the Replier")
+      log.info("Processing at the Replier, and self is: {}", self)
       sender ! anything
   }
 }
