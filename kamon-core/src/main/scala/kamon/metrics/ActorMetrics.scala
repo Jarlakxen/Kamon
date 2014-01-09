@@ -20,18 +20,22 @@ import org.HdrHistogram.{ AbstractHistogram, AtomicHistogram }
 import kamon.util.GlobPathFilter
 import scala.collection.concurrent.TrieMap
 import scala.collection.JavaConversions.iterableAsScalaIterable
-import akka.actor.{Actor, ActorContext, ActorRef}
+import akka.actor.{ Actor, ActorContext, ActorRef }
+import kamon.metrics.ActorMetricsDealer.{ ActorMetrics, FlushMetrics, Subscribe }
+import kamon.Kamon
+import scala.concurrent.duration._
+import java.util.concurrent.TimeUnit
 
 trait ActorMetrics {
   self: MetricsExtension ⇒
 
   val config = system.settings.config.getConfig("kamon.metrics.actors")
-  val actorMetrics = TrieMap[String, ActorMetricsRecorder]()
+  val actorMetrics = TrieMap[String, HdrActorMetricsRecorder]()
 
   val trackedActors: Vector[GlobPathFilter] = config.getStringList("tracked").map(glob ⇒ new GlobPathFilter(glob)).toVector
   val excludedActors: Vector[GlobPathFilter] = config.getStringList("excluded").map(glob ⇒ new GlobPathFilter(glob)).toVector
 
-  val actorMetricsFactory: () ⇒ ActorMetricsRecorder = {
+  val actorMetricsFactory: () ⇒ HdrActorMetricsRecorder = {
     val settings = config.getConfig("hdr-settings")
     val processingTimeHdrConfig = HdrConfiguration.fromConfig(settings.getConfig("processing-time"))
     val timeInMailboxHdrConfig = HdrConfiguration.fromConfig(settings.getConfig("time-in-mailbox"))
@@ -51,18 +55,13 @@ trait ActorMetrics {
   def shouldTrackActor(path: String): Boolean =
     trackedActors.exists(glob ⇒ glob.accept(path)) && !excludedActors.exists(glob ⇒ glob.accept(path))
 
-  def registerActor(path: String): ActorMetricsRecorder = actorMetrics.getOrElseUpdate(path, actorMetricsFactory())
+  def registerActor(path: String): HdrActorMetricsRecorder = actorMetrics.getOrElseUpdate(path, actorMetricsFactory())
 
   def unregisterActor(path: String): Unit = actorMetrics.remove(path)
 }
 
-trait ActorMetricsRecorder {
-  def recordTimeInMailbox(waitTime: Long): Unit
-  def recordProcessingTime(processingTime: Long): Unit
-}
-
 class HdrActorMetricsRecorder(processingTimeHdrConfig: HdrConfiguration, timeInMailboxHdrConfig: HdrConfiguration,
-                              mailboxSizeHdrConfig: HdrConfiguration) extends ActorMetricsRecorder {
+                              mailboxSizeHdrConfig: HdrConfiguration) {
 
   val processingTimeHistogram = new AtomicHistogram(processingTimeHdrConfig.highestTrackableValue, processingTimeHdrConfig.significantValueDigits)
   val timeInMailboxHistogram = new AtomicHistogram(timeInMailboxHdrConfig.highestTrackableValue, timeInMailboxHdrConfig.significantValueDigits)
@@ -72,8 +71,9 @@ class HdrActorMetricsRecorder(processingTimeHdrConfig: HdrConfiguration, timeInM
 
   def recordProcessingTime(processingTime: Long): Unit = processingTimeHistogram.recordValue(processingTime)
 
-  def snapshot(): HdrActorMetricsSnapshot = HdrActorMetricsSnapshot(processingTimeHistogram.copy(),
-    timeInMailboxHistogram.copy(), mailboxSizeHistogram.copy())
+  def snapshot(): HdrActorMetricsSnapshot = {
+    HdrActorMetricsSnapshot(processingTimeHistogram.copy(), timeInMailboxHistogram.copy(), mailboxSizeHistogram.copy())
+  }
 
   def reset(): Unit = {
     processingTimeHistogram.reset()
@@ -85,14 +85,64 @@ class HdrActorMetricsRecorder(processingTimeHdrConfig: HdrConfiguration, timeInM
 case class HdrActorMetricsSnapshot(processingTimeHistogram: AbstractHistogram, timeInMailboxHistogram: AbstractHistogram,
                                    mailboxSizeHistogram: AbstractHistogram)
 
+class ActorMetricsDealer extends Actor {
+  val tickInterval = Duration(context.system.settings.config.getNanoseconds("kamon.metrics.tick-interval"), TimeUnit.NANOSECONDS)
+  val flushMetricsSchedule = context.system.scheduler.schedule(tickInterval, tickInterval, self, FlushMetrics)(context.dispatcher)
 
-class MetricsActor extends Actor {
-  var oneOffListeners: Map[String, List[ActorRef]]
+  var subscribedForever: Map[GlobPathFilter, List[ActorRef]] = Map.empty
+  var subscribedForOne: Map[GlobPathFilter, List[ActorRef]] = Map.empty
+  var lastTick = System.currentTimeMillis()
 
-  def receive = ???
+  def receive = {
+    case Subscribe(path, true)  ⇒ subscribeForever(path, sender)
+    case Subscribe(path, false) ⇒ subscribeOneOff(path, sender)
+    case FlushMetrics           ⇒ flushMetrics()
+  }
+
+  def subscribeForever(path: String, receiver: ActorRef): Unit = subscribedForever = subscribe(receiver, path, subscribedForever)
+
+  def subscribeOneOff(path: String, receiver: ActorRef): Unit = subscribedForOne = subscribe(receiver, path, subscribedForOne)
+
+  def subscribe(receiver: ActorRef, path: String, target: Map[GlobPathFilter, List[ActorRef]]): Map[GlobPathFilter, List[ActorRef]] = {
+    val pathFilter = new GlobPathFilter(path)
+    val oldReceivers = target.get(pathFilter).getOrElse(Nil)
+    target.updated(pathFilter, receiver :: oldReceivers)
+  }
+
+  def flushMetrics(): Unit = {
+    val currentTick = System.currentTimeMillis()
+    val snapshots = Kamon(Metrics)(context.system).actorMetrics.map { am ⇒
+      val (path, metrics) = am
+
+      val snapshot = metrics.snapshot()
+      metrics.reset()
+
+      (path, snapshot)
+    }.toMap
+
+    dispatchMetricsTo(subscribedForOne, snapshots, currentTick)
+    dispatchMetricsTo(subscribedForever, snapshots, currentTick)
+
+    subscribedForOne = Map.empty
+    lastTick = currentTick
+  }
+
+  def dispatchMetricsTo(subscribers: Map[GlobPathFilter, List[ActorRef]], snapshots: Map[String, HdrActorMetricsSnapshot],
+                        currentTick: Long): Unit = {
+
+    for ((subscribedPath, receivers) ← subscribers) {
+      val metrics = snapshots.filterKeys(snapshotPath ⇒ subscribedPath.accept(snapshotPath))
+      val actorMetrics = ActorMetrics(lastTick, currentTick, metrics)
+
+      receivers.foreach(ref ⇒ ref ! actorMetrics)
+    }
+  }
 }
 
+object ActorMetricsDealer {
+  case class Subscribe(path: String, forever: Boolean = false)
+  case class UnSubscribe(path: String)
 
-object MetricsActor {
-  case class Query(path: String, subscribe: Boolean = false)
+  case class ActorMetrics(fromMillis: Long, toMillis: Long, metrics: Map[String, HdrActorMetricsSnapshot])
+  case object FlushMetrics
 }

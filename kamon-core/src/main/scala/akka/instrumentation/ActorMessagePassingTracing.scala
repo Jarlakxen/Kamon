@@ -20,13 +20,13 @@ import org.aspectj.lang.ProceedingJoinPoint
 import akka.actor.{ Cell, Props, ActorSystem, ActorRef }
 import akka.dispatch.{ Envelope, MessageDispatcher }
 import kamon.trace.{ TraceContext, ContextAware, Trace }
-import kamon.metrics.{ ActorMetricsRecorder, Metrics }
+import kamon.metrics.{ HdrActorMetricsRecorder, Metrics }
 import kamon.Kamon
 
 @Aspect("perthis(actorCellCreation(*, *, *, *, *))")
 class BehaviourInvokeTracing {
   var path: Option[String] = None
-  var actorMetrics: Option[ActorMetricsRecorder] = None
+  var actorMetrics: Option[HdrActorMetricsRecorder] = None
 
   @Pointcut("execution(akka.actor.ActorCell.new(..)) && args(system, ref, props, dispatcher, parent)")
   def actorCellCreation(system: ActorSystem, ref: ActorRef, props: Props, dispatcher: MessageDispatcher, parent: ActorRef): Unit = {}

@@ -16,7 +16,7 @@
 
 package kamon.metrics
 
-import akka.actor.{ ExtendedActorSystem, ExtensionIdProvider, ExtensionId }
+import akka.actor.{Props, ExtendedActorSystem, ExtensionIdProvider, ExtensionId}
 import akka.actor
 import kamon.Kamon
 
@@ -27,5 +27,5 @@ object Metrics extends ExtensionId[MetricsExtension] with ExtensionIdProvider {
 }
 
 class MetricsExtension(val system: ExtendedActorSystem) extends Kamon.Extension with ActorMetrics {
-
+  val dealer = system.actorOf(Props[ActorMetricsDealer], "kamon-actor-metrics")
 }
